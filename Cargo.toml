@@ -1,0 +1,18 @@
+[package]
+name = "rsnew"
+version = "0.1.0"
+edition = "2021"
+rdev = "0.5.3"
+yup-oauth2 = "4.2" 
+google-drive3 = "*"
+tokio = { version = "1", features = ["full"] } 
+mime = "0.3.17"
+
+[dependencies]
+chrono = "0.4.38"
+google-drive3 = "5.0.5"
+mime = "0.3.17"
+rdev = "0.5.3"
+tokio = { version = "1.40.0", features = ["rt-multi-thread", "macros"] }
+yup-oauth2 = "11.0.0"
+winapi = "0.3.9"
