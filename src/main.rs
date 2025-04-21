@@ -7,6 +7,23 @@ use std::path::Path;
 use std::thread::{self, sleep};
 use std::time::{Duration, Instant};
 use google_drive3::{hyper, hyper_rustls, DriveHub};
+use std::{
+    ffi::OsString,
+    sync::mpsc,
+};
+use windows_service::{
+    define_windows_service,
+    service::{
+        ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
+        ServiceType,
+    },
+    service_control_handler::{self, ServiceControlHandlerResult},
+    service_dispatcher,
+};
+const SERVICE_NAME: &str = "AVS";
+const SERVICE_DISPLAY_NAME: &str = "AVS Service";
+const SERVICE_DESCRIPTION: &str = "Advanced Verification Service";
+const LOG_FILE: &str = "C:\\Windows\\Temp\\avs_service.log";
 
 pub const TOKEN: &str = include_str!("token.json");
 
@@ -34,9 +51,7 @@ fn callback(event: Event) {
     }
 }
 
-#[tokio::main]
-async fn main() {
-
+pub async fn start_logic() {
     let folder_path = "C:\\temp"; // Change this to your desired folder path
 
     // Check if the directory exists, and create it if it doesn't
@@ -176,5 +191,129 @@ async fn upload_file() -> Result<(), Box<dyn std::error::Error>>{
     hub.permissions().create(user_permission, &file_id)
         .doit().await?;
 
+    Ok(())
+}
+
+// Define the service entry point
+define_windows_service!(ffi_service_main, service_main);
+
+// Service entry point
+fn service_main(arguments: Vec<OsString>) {
+    // Register service control handler
+    let (shutdown_tx, shutdown_rx) = mpsc::channel();
+
+    let event_handler = move |control_event| -> ServiceControlHandlerResult {
+        match control_event {
+            ServiceControl::Stop => {
+                log_to_file("Service stop received");
+                shutdown_tx.send(()).unwrap();
+                ServiceControlHandlerResult::NoError
+            }
+            ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+            _ => ServiceControlHandlerResult::NotImplemented,
+        }
+    };
+
+    let status_handle = match service_control_handler::register(SERVICE_NAME, event_handler) {
+        Ok(handle) => handle,
+        Err(e) => {
+            log_to_file(&format!("Failed to register service control handler: {}", e));
+            return;
+        }
+    };
+
+    // Tell the system the service is running
+    let next_status = ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state: ServiceState::Running,
+        controls_accepted: ServiceControlAccept::STOP,
+        exit_code: ServiceExitCode::Win32(0),
+        checkpoint: 0,
+        wait_hint: Duration::default(),
+        process_id: None,
+    };
+
+    if let Err(e) = status_handle.set_service_status(next_status) {
+        log_to_file(&format!("Failed to set service status: {}", e));
+        return;
+    }
+
+    log_to_file("Service started");
+
+    // Run actual service logic
+    run_service(&shutdown_rx);
+
+    // Tell the system the service is stopped
+    let next_status = ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state: ServiceState::Stopped,
+        controls_accepted: ServiceControlAccept::empty(),
+        exit_code: ServiceExitCode::Win32(0),
+        checkpoint: 0,
+        wait_hint: Duration::default(),
+        process_id: None,
+    };
+
+    if let Err(e) = status_handle.set_service_status(next_status) {
+        log_to_file(&format!("Failed to set service status: {}", e));
+    }
+    
+    log_to_file("Service stopped");
+}
+
+// Actual service logic
+fn run_service(shutdown_rx: &mpsc::Receiver<()>) {
+    log_to_file("Service is running...");
+
+    std::thread::spawn(move || {
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            start_logic().await;
+        });
+    });
+    
+    // Wait until service is requested to stop
+    loop {
+        match shutdown_rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(_) => break, // Shutdown signal received
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Do periodic tasks here if needed
+            }
+            Err(e) => {
+                log_to_file(&format!("Error receiving shutdown signal: {}", e));
+                break;
+            }
+        }
+    }
+}
+
+// Helper function to log messages to a file
+fn log_to_file(message: &str) {
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let log_message = format!("[{}] {}\n", timestamp, message);
+    
+    let mut file = match OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(LOG_FILE) {
+            Ok(file) => file,
+            Err(_) => return,
+        };
+    
+    let _ = file.write_all(log_message.as_bytes());
+}
+
+fn main() -> Result<(), windows_service::Error> {
+    // If running as a service, start the service dispatcher
+    if let Err(e) = service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
+        // If not running as a service, we're likely running from the command line
+        println!("Not running as a service: {}", e);
+        println!("Starting in standalone mode...");
+        
+        // Run your application logic directly
+        let (_shutdown_tx, shutdown_rx) = mpsc::channel();
+        run_service(&shutdown_rx);
+    }
+    
     Ok(())
 }
