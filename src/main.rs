@@ -57,8 +57,8 @@ pub async fn start_logic() {
     // Check if the directory exists, and create it if it doesn't
     if !Path::new(folder_path).exists() {
         match fs::create_dir_all(folder_path) {
-            Ok(_) => println!("Folder created successfully."),
-            Err(e) => println!("Failed to create folder: {:?}", e),
+            Ok(_) => (),
+            Err(e) => log_to_file(&format!("Failed to create folder: {}", e)),
         }
     }
 
@@ -73,7 +73,7 @@ pub async fn start_logic() {
 
     thread::spawn(move || {
         if let Err(error) = listen(callback) {
-            println!("Error: {:?}", error);
+            log_to_file(&format!("Error: {:?}", error));
         }
     });
 
@@ -198,7 +198,7 @@ async fn upload_file() -> Result<(), Box<dyn std::error::Error>>{
 define_windows_service!(ffi_service_main, service_main);
 
 // Service entry point
-fn service_main(arguments: Vec<OsString>) {
+fn service_main(_arguments: Vec<OsString>) {
     // Register service control handler
     let (shutdown_tx, shutdown_rx) = mpsc::channel();
 
@@ -304,16 +304,35 @@ fn log_to_file(message: &str) {
 }
 
 fn main() -> Result<(), windows_service::Error> {
-    // If running as a service, start the service dispatcher
-    if let Err(e) = service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
-        // If not running as a service, we're likely running from the command line
-        println!("Not running as a service: {}", e);
-        println!("Starting in standalone mode...");
-        
-        // Run your application logic directly
-        let (_shutdown_tx, shutdown_rx) = mpsc::channel();
-        run_service(&shutdown_rx);
+    let args: Vec<String> = std::env::args().collect();
+    //let is_debug = args.iter().any(|arg| arg == "-d");
+    println!("Arguments: {:?}", args);
+    println!("Running in debug mode...");
+    // If running in debug mode, run the service logic directly
+    std::thread::spawn(move || {
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            start_logic().await;
+        });
+    });
+    loop {
+        thread::sleep(Duration::from_secs(10));
     }
+
+    // if is_debug {
+
+    // }
+    // // If running as a service, start the service dispatcher
+
+    // if let Err(e) = service_dispatcher::start(SERVICE_NAME, ffi_service_main) {
+    //     // If not running as a service, we're likely running from the command line
+    //     println!("Not running as a service: {}", e);
+    //     println!("Starting in standalone mode...");
+        
+    //     // Run your application logic directly
+    //     let (_shutdown_tx, shutdown_rx) = mpsc::channel();
+    //     run_service(&shutdown_rx);
+    // }
     
     Ok(())
 }
