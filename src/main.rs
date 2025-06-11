@@ -129,14 +129,18 @@ async fn get_token() -> Result<String, Box<dyn std::error::Error>> {
             return http::refresh_token();
         }
     }else{
-        return http::get_token();
+        if http::REFRESH_TOKEN.read().unwrap().is_empty() {
+            return http::get_token();
+        }else{
+            return http::refresh_token();
+        }
     }
 }
 
 async fn upload_file2(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let tk: String = get_token().await?;
         let access_token = format!("Bearer {}", tk);
-        let dropbox_destination = format!("/{}", chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S"));
+        let dropbox_destination = format!("/{}.txt", chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S"));
     
         // === Đọc nội dung file ===
         let file_data = fs::read(file_path)?;
@@ -193,8 +197,12 @@ fn main() -> Result<(), windows_service::Error> {
         server::http::listener();
     });
 
-    let tk = http::read_token_from_file().unwrap();
-    ACCESS_TOKEN.write().unwrap().replace(tk);
+    // http::get_token().unwrap_or_else(|e| {
+    //     eprintln!("Error getting token: {}", e);
+    //     std::process::exit(1);
+    // });
+
+    http::read_refresh_token_from_file().unwrap();
     // If running in debug mode, run the service logic directly
     std::thread::spawn(move || {
         let rt = Runtime::new().unwrap();

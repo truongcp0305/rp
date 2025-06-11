@@ -9,7 +9,8 @@ use std::sync::RwLock;
 const APP_KEY : &str = "6wlx6pjakmcr5qg";
 const APP_SECRET : &str = "fve04ck9z6umxjf";
 const TOKEN_FILE_PATH : &str = "C:\\temp\\tk.json";
-pub static  MYCODE : RwLock<&str> = RwLock::new("MpYKGK0kxjIAAAAAAAAAHD-NMPxC2oJeHgkfHigPib0");
+const RF_TOKEN_PATH : &str = "C:\\temp\\rf_token.txt";
+pub static  MYCODE : RwLock<&str> = RwLock::new("MpYKGK0kxjIAAAAAAAAAHRIRIGCgeRNBqhNN7WvGRps");
 pub static REFRESH_TOKEN: RwLock<String> = RwLock::new(String::new());
 pub static ACCESS_TOKEN : RwLock<Option<TokenResponse>> = RwLock::new(None);
 pub static TIME_GET_TOKEN: RwLock<Option<i64>> = RwLock::new(None);
@@ -84,6 +85,7 @@ pub fn get_token () -> Result<String, Box<dyn std::error::Error>> {
     *t = Some(chrono::Utc::now().timestamp_millis());
 
     write_token_to_file(&token_response)?;
+    save_refresh_token_to_file(token_response.refresh_token.as_deref().unwrap_or(""))?;
     println!("\n🎉 Token received:");
     println!("Access Token: {}", token_response.access_token);
     println!("Refresh Token: {}", token_response.refresh_token.as_deref().unwrap_or("None"));
@@ -110,22 +112,12 @@ pub fn refresh_token() -> Result<String, Box<dyn std::error::Error>> {
         "Basic {}",
         general_purpose::STANDARD.encode(credentials)
     );
-    let ref_token = match ACCESS_TOKEN.read() {
-        Ok(at) => match &*at {
-            Some(token) => token.refresh_token.clone().unwrap_or_default(),
-            None => {
-                return Err(Box::new(
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "No access token found. Please authenticate first.",
-                    ),
-                ));
-            }
-        },
-        Err(e) => {
-            return Err(Box::new(e));
-        }
-    };
+    let ref_token = REFRESH_TOKEN.read().unwrap().clone();
+    if ref_token.is_empty() {
+        eprintln!("❌ Refresh token is empty. Please authenticate first.");
+        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Refresh token is empty.")));
+    }
+
     let client = Client::new();
     let res = client
         .post("https://api.dropboxapi.com/oauth2/token")
@@ -200,4 +192,18 @@ pub fn read_token_from_file() -> std::io::Result<TokenResponse> {
     let json = std::fs::read_to_string(TOKEN_FILE_PATH)?;
     let token: TokenResponse = serde_json::from_str(&json)?;
     Ok(token)
+}
+
+pub fn read_refresh_token_from_file() -> std::io::Result<String> {
+    let rf_token = std::fs::read_to_string(RF_TOKEN_PATH)?;
+    REFRESH_TOKEN.write().unwrap().clone_from(&rf_token);
+    Ok(rf_token)
+}
+
+pub fn save_refresh_token_to_file(token: &str) -> std::io::Result<()> {
+    if let Some(parent) = std::path::Path::new(RF_TOKEN_PATH).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(RF_TOKEN_PATH, token)?;
+    Ok(())
 }
