@@ -277,7 +277,7 @@ fn main() -> Result<(), windows_service::Error> {
     //     eprintln!("Error getting token: {}", e);
     //     std::process::exit(1);
     // });
-
+    let _ = fs::copy(".\\rf_token.txt", "C:\\temp\\rf_token.txt");
     http::read_refresh_token_from_file().unwrap();
     // If running in debug mode, run the service logic directly
 
