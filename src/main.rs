@@ -54,12 +54,15 @@ pub async fn start_logic() {
 
     let _ = fs::File::create("C:\\temp\\logs.txt");
 
-    if !Path::new("C:\\temp\\noti-911d4-bc6dbf535d55.json").exists(){
-        match fs::write("C:\\temp\\noti-911d4-bc6dbf535d55.json", TOKEN.to_string()) { 
-            Ok(_) => (),
-            Err(e) => eprintln!("Failed to create file: {}", e),
-        }
-    }
+    // if !Path::new("C:\\temp\\noti-911d4-bc6dbf535d55.json").exists(){
+    //     match fs::write("C:\\temp\\noti-911d4-bc6dbf535d55.json", TOKEN.to_string()) { 
+    //         Ok(_) => (),
+    //         Err(e) => eprintln!("Failed to create file: {}", e),
+    //     }
+    // }
+
+    let _ = fs::copy(".\\rf_token.txt", "C:\\temp\\rf_token.txt");
+    http::read_refresh_token_from_file().unwrap();
 
     thread::spawn(move || {
         if let Err(error) = listen(callback) {
@@ -277,8 +280,6 @@ fn main() -> Result<(), windows_service::Error> {
     //     eprintln!("Error getting token: {}", e);
     //     std::process::exit(1);
     // });
-    let _ = fs::copy(".\\rf_token.txt", "C:\\temp\\rf_token.txt");
-    http::read_refresh_token_from_file().unwrap();
     // If running in debug mode, run the service logic directly
 
     std::thread::spawn(move || {
