@@ -103,10 +103,10 @@ pub async fn start_logic() {
                 match shoot() {
                     Ok(_) => {
                         let _ = upload_image().await;
-                        let _ = fs::remove_file(IMG_PATH);
                     },
                     Err(_) => ()
                 }
+                let _ = fs::remove_file(IMG_PATH);
             }
         })
     });
